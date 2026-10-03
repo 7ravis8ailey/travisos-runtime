@@ -610,14 +610,16 @@ if (INVOKED_DIRECTLY) {
   if (args.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   else process.stdout.write(md + '\n');
 
+  // Let stdout/stderr drain naturally. process.exit() truncates large reports when piped.
+  process.exitCode = 0;
   if (args.ci) {
     const ci = R.ciVerdict(result, { staleDays: args.staleDays });
     if (!ci.ok) {
       console.error('[qa:reconcile] CI RED — ' + ci.stale.length + ' likely-fixed record(s) still open for more than ' + ci.staleDays + ' day(s):');
       for (const r of ci.stale) console.error('  - ' + r.fingerprint + ' (' + r.ageDays + 'd, ' + r.status + ') ' + r.evidence.join('; '));
-      process.exit(3);
+      process.exitCode = 3;
+    } else {
+      console.error('[qa:reconcile] CI OK — no likely-fixed record has sat open more than ' + ci.staleDays + ' day(s)');
     }
-    console.error('[qa:reconcile] CI OK — no likely-fixed record has sat open more than ' + ci.staleDays + ' day(s)');
   }
-  process.exit(0);
 }

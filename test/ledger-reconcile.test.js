@@ -323,6 +323,30 @@ const rowOf = (res, fp) => res.records.find(r => r.fingerprint === fp);
     let parsed = null;
     try { parsed = JSON.parse(run.stdout); } catch (_) { parsed = null; }
     A.ok(parsed && Array.isArray(parsed.records) && parsed.summary, '--json prints the result object');
+
+    // A fixed-size fixture must exceed pipe capacity even if the real bug register shrinks.
+    // Exercise both successful CI and stale-record failure: neither may truncate stdout.
+    const fixtureScripts = path.join(root, 'scripts', 'qa');
+    fs.mkdirSync(fixtureScripts, { recursive: true });
+    for (const name of ['ledger-reconcile.mjs', 'bugs.mjs', 'ledger.mjs', 'bug-lifecycle.mjs']) {
+      fs.copyFileSync(path.join(path.dirname(cli), name), path.join(fixtureScripts, name));
+    }
+    for (let i = 0; i < 256; i++) {
+      const item = record(reg, { title: 'Pipe output record ' + i, slug: 'pipe-output-' + i, found: '2026-07-01' });
+      fs.writeFileSync(path.join(root, 'qa', 'bugs', item.file), item.text);
+    }
+    for (const [staleDays, expectedCode] of [['99999', 0], ['0', 3]]) {
+      const piped = spawnSync(process.execPath, [fs.realpathSync(path.join(fixtureScripts, 'ledger-reconcile.mjs')),
+        '--no-write', '--no-run', '--json', '--ci', '--stale-days', staleDays],
+      { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+      A.eq(piped.status, expectedCode, 'large piped report preserves CI exit ' + expectedCode);
+      let report = null;
+      try { report = JSON.parse(piped.stdout); } catch (_) { /* asserted below */ }
+      A.ok(Buffer.byteLength(piped.stdout || '') > 65536, 'large report drains beyond 64 KiB for exit ' + expectedCode);
+      A.ok(report && report.records.length === 257 && report.summary.records.total === 257,
+        'complete JSON report survives the pipe for exit ' + expectedCode);
+      A.eq(piped.stderr.includes('CI OK'), expectedCode === 0, 'CI success message matches exit ' + expectedCode);
+    }
     const bad = spawnSync(process.execPath, [cli, '--stale-days', '-1'], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: 60000 });
     A.eq(bad.status, 1, 'a negative --stale-days is refused with exit 1');
   } catch (e) {

@@ -492,17 +492,19 @@ const WorldLight = (() => {
       // Floor visibility stops at the physical wall plane, so no light can carve
       // the heavy deck ambient out of those faces. Keep that ambient on the deck:
       // otherwise it forms a black stripe across walls AND foreground prop tops.
+      // Use the same intermediate surface for every receiver representation.
+      // Direct path fills otherwise blend unquantized alpha against the wall,
+      // while raster masks quantize first, producing different deck opacity.
+      // Reuse the frame surface; this adds no station-sized allocation.
+      const floor = reset(frameDark); floor.save(); clipDeckFootprint(floor);
       if (!interiorPath && hasInteriorMask()) {
-        // Reuse an existing frame surface during the static build. No extra
-        // station-sized canvas is needed for REFIT's chunked silhouette union.
-        const floor = reset(frameDark); floor.save(); clipDeckFootprint(floor);
-        paintFloorMask(floor); floor.restore(); floor.globalCompositeOperation = 'source-in';
-        floor.fillStyle = 'rgba(5,9,22,' + inside + ')'; floor.fillRect(0, 0, width, height);
-        d.drawImage(frameDark, 0, 0, width, height);
+        paintFloorMask(floor);
       } else {
-        d.save(); clipDeckFootprint(d); clipFloor(d); d.fillStyle = 'rgba(5,9,22,' + inside + ')';
-        d.fillRect(0, 0, width, height); d.restore();
+        clipFloor(floor); floor.fillStyle = '#fff'; floor.fillRect(0, 0, width, height);
       }
+      floor.restore(); floor.globalCompositeOperation = 'source-in';
+      floor.fillStyle = 'rgba(5,9,22,' + inside + ')'; floor.fillRect(0, 0, width, height);
+      d.drawImage(frameDark, 0, 0, width, height);
       // cut > 1 opens a pool further; fill lamps arrive at ~.42 and left a third of
       // the ambient film standing directly under the fixture.
       paint(d, lights, clamp(finite(config.cut, 1), 0, 3), 'destination-out');
